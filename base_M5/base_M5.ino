@@ -72,8 +72,13 @@ const int PWM_Values = 70; //デューティ　デューティー比30%固定
 const double PWM_Frequency = 2000.0;
                             // PWM周波数 Maxfreq=80000000.0/2^n[Hz]
 
-// float offset_x = 1.1;
-// float offset_y = 1.23;
+//定時割り込み機能系設定
+hw_timer_t * timer = NULL;
+bool timer_flag = 0;
+
+void onTimer(){//タイマー割込みで実行される関数
+  timer_flag = 1;
+}
 
 void setup()
 {
@@ -121,6 +126,18 @@ void setup()
   digitalWrite(SHOOT_DIR_1, HIGH);//射出モータの方向を変える
   // pinMode(STICK_X_INPUT, INPUT);
   // pinMode(STICK_Y_INPUT, INPUT);
+
+  //コントローラ情報などリセット
+  inital_data_set();
+  // リセット
+  // タイマ作成
+  timer = timerBegin(0, 80, true);
+  // タイマ割り込みサービス・ルーチン onTimer を登録
+  timerAttachInterrupt(timer, &onTimer, true);
+  // 割り込みタイミング(ms)の設定
+  timerAlarmWrite(timer, 10, true);
+  // タイマ有効化
+  timerAlarmEnable(timer);
 
 }
 
@@ -217,7 +234,9 @@ void servo_angle_write(uint8_t n, int Angle) {
 /// @brief 射出モータのON/OFFを切り替える関数
 void shoot_ready_set(int emergency = 0){
   static int old_pin = 0;
-  
+  if(emergency){
+    shoot_ready = 0;
+  }
   if(old_pin!=shoot_ready){
     // チャンネルと周波数の分解能を設定
     ledcSetup(PWM_CH, PWM_Frequency, nBits_forPWM);
@@ -237,35 +256,49 @@ const int servo_ready_angle_0 = 70;
 const int servo_shoot_angle_0 = 30;
 const int servo_ready_angle_1 = 55;
 const int servo_shoot_angle_1 = 90;
-const int servo_wait_cnt_max = 10;
+const int servo_wait_cnt_max = 100; //射出スピードを設定。制御周期×この数＝左右1回ずつ射出する周期
 
 /// @brief 射出用サーボをコントロールする
 void shoot_servo_controll(int emergency = 0){
+  static int old_pattarn = 0;
   if(emergency){
-    servo_angle_write(0,servo_ready_angle_0);
-    servo_angle_write(1,servo_ready_angle_1);
+    if(old_pattarn !=0){
+      old_pattarn = 0;
+      servo_angle_write(0,servo_ready_angle_0);
+      servo_angle_write(1,servo_ready_angle_1);
+    }
     return;
   }
+
   static int servo_cnt = 0; 
   if(a_button){
     if(servo_cnt < servo_wait_cnt_max/2){
-      //charge 0, shoot 1
-      servo_angle_write(0,servo_ready_angle_0);
-      servo_angle_write(1,servo_shoot_angle_1);
+      if(old_pattarn!=1){
+        old_pattarn = 1;
+        //charge 0, shoot 1
+        servo_angle_write(0,servo_ready_angle_0);
+        servo_angle_write(1,servo_shoot_angle_1);
+      }
       servo_cnt ++;
     }else if(servo_cnt < servo_wait_cnt_max){
-      //shoot 0, charge 1
-      servo_angle_write(0,servo_shoot_angle_0);
-      servo_angle_write(1,servo_ready_angle_1);
+      if(old_pattarn!=2){
+        old_pattarn = 2;
+        //shoot 0, charge 1
+        servo_angle_write(0,servo_shoot_angle_0);
+        servo_angle_write(1,servo_ready_angle_1);
+      }
       servo_cnt++;
     }else{
       servo_cnt = 0;
     }
   }else{
     //charge both
+    if(old_pattarn !=0){
+      old_pattarn = 0;
       servo_angle_write(0,servo_ready_angle_0);
       servo_angle_write(1,servo_ready_angle_1);
       //  servo_cnt = 0; //to shoot evenly, do not reset cnt;
+    }
   }
 }
 void inital_data_set(){
@@ -277,6 +310,8 @@ void inital_data_set(){
 
 }
 
+
+unsigned long  wireless_get_time = 1;
 
 void loop()
 {
@@ -299,26 +334,8 @@ void loop()
   // float target_y = -1*(2.0 * (float (stick_y_raw)/3000.0 ) - offset_y);
   // float target_omega = 0.0; 
 
-  unsigned long  wireless_cnt = millis()+1;
   
-  while(!get_controller_data() ){
-    if(millis() - wireless_cnt >3000){//無線が3000ms来ないとき、無線通信途絶と解釈
-      wireless_cnt = 0;
-      break;
-    }
-    // wireless_cnt++;
-    // if(wireless_cnt>10000){ //無線が切れたとき＝何回やっても全然通信できないとき用
-    //   wireless_cnt = -1;
-    //   break;
-    // }
-    // delay_ms(1);
-  }
-  if(wireless_cnt == 0){
-    inital_data_set();
-  }
-
-
-  if(y_button){
+  if(y_button){//Stickのイニシャライズ
     left_holizontal_zero_pos = decoded_data[2];
     left_vertical_zero_pos = decoded_data[1];
     right_holizontal_zero_pos = decoded_data[4];
@@ -337,9 +354,9 @@ void loop()
   //add spin speed
   if(spin_switch){
     target_omega += SPIN_OMEGA;
-    speed[4] = - SPIN_NECK_GEARRATIO * SPIN_OMEGA;
+    speeds[4] = - SPIN_NECK_GEARRATIO * SPIN_OMEGA;
   }else{
-    speed[4] = 0.0;
+    speeds[4] = 0.0;
   }
 
   //calc each motor speed
@@ -350,8 +367,8 @@ void loop()
   speeds[3] =   target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y) * target_omega;
 
   controller.send_speed_command(motor_ids, speeds);
-  shoot_ready_set();
-  shoot_servo_controll();
+  shoot_ready_set(wireless_get_time == 0);
+  shoot_servo_controll(wireless_get_time == 0);
 
   //表示部
   M5.Lcd.clear(BLACK);
@@ -360,9 +377,23 @@ void loop()
   M5.Lcd.printf("Speed : %.3f, %.3f ,%.3f \n",target_x,target_y,target_omega);
   M5.Lcd.printf("Motor : %.3f, %.3f, %.3f, %.3f \n",speeds[0],speeds[1],speeds[2],speeds[3]);
   M5.Lcd.printf("Button: %02x,A:%d, B:%d,X:%d, Y:%d, SPIN:%d, SHOOT:%d \n",decoded_data[5]
-    ,a_button,b_button, x_button,,y_button,spin_switch,shoot_ready);
+    ,a_button,b_button, x_button,y_button,spin_switch,shoot_ready);
 
-  delay(30);
+  int get_data_flag = 0;
+  while((!(get_data_flag =get_controller_data()) && !timer_flag)){
+    //受信できない間中
+    if(wireless_get_time!=0 && millis() - wireless_get_time >3000){//無線が3000ms来ないとき、無線通信途絶と解釈
+      wireless_get_time = 0;
+      break;
+    }
+  }
+  if(wireless_get_time == 0){
+    inital_data_set();
+  }else if(get_data_flag){
+    wireless_get_time = millis();
+  }
+  while(!timer_flag){
+  }
 }
 
 void init_can()
