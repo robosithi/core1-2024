@@ -66,11 +66,15 @@ const uint8_t nBits_forPWM = 8; // PWMに使用するビット数　n=1～16[bit
 const uint8_t PWM_CH = 2;   // PWMチャンネル
 const uint8_t SHOOT_DIR_1 = 25;   // DIRチャンネル
 const uint8_t SHOOT_PIN = 2;  // PWM出力に使用するGPIO PIN番号
-const int PWM_Values = 70; //デューティ　デューティー比30%固定
-//実質的な射出速度
-                            //MaxDuty=2^n  DutyRatio = Duty/MaxDuty
+const int PWM_Values = 70; //デューティ 実質的な射出速度 70->約27%
+                            //MaxDuty=2^n (nBits_forPWM)  DutyRatio = Duty/MaxDuty
 const double PWM_Frequency = 2000.0;
                             // PWM周波数 Maxfreq=80000000.0/2^n[Hz]
+
+//撃破時動作停止系変数宣言
+const int destroyed_pin = 21; //撃破信号入力ピン　、Inverce（0だと撃破されている状態）
+int destroyed_flag = 0; //撃破されていたか、フラグ。切り替え時のみの処理に使用
+
 
 //定時割り込み機能系設定
 hw_timer_t * timer = NULL;
@@ -124,8 +128,9 @@ void setup()
   pinMode(SHOOT_PIN, OUTPUT); 
   pinMode(SHOOT_DIR_1, OUTPUT); 
   digitalWrite(SHOOT_DIR_1, HIGH);//射出モータの方向を変える
-  // pinMode(STICK_X_INPUT, INPUT);
-  // pinMode(STICK_Y_INPUT, INPUT);
+
+  //撃破時停止機能のための入力
+  pinMode(destroyed_pin, INPUT);
 
   //コントローラ情報などリセット
   inital_data_set();
@@ -193,8 +198,8 @@ int get_controller_data(){
       y_button    = (decoded_data[5] & 0x02)? 1:0;
       spin_switch = (decoded_data[5] & 0x04)? 1:0;
       shoot_ready = (decoded_data[5] & 0x08)? 1:0;
-      x_button    = (decoded_data[5] & 0x10)? 1:0;
-      b_button    = (decoded_data[5] & 0x20)? 1:0;
+      x_button    = (decoded_data[5] & 0x10)? 1:0;  // need check
+      b_button    = (decoded_data[5] & 0x20)? 1:0;  // need check
 
     }else{
       input[input_num] = data;
@@ -310,14 +315,29 @@ void inital_data_set(){
 
 }
 
-
 unsigned long  wireless_get_time = 1;
+
+void check_destroyed_stop(){
+  if(digitalRead(destroyed_pin)==0){
+    if(destroyed_flag==0){
+      controller.reset_motors();
+      wireless_get_time = 0;
+    }
+  }else{
+    if(destroyed_flag==1){
+      controller.enable_motors();
+      wireless_get_time = millis();
+    }
+  }
+}
+
 
 void loop()
 {
   // update m5 satatus
   M5.update();
 
+  check_destroyed_stop();
 
   // update and get motor data
   std::vector<MotorStatus> status_list;
