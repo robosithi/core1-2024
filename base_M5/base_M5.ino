@@ -78,8 +78,8 @@ const int destroyed_pin = 21; //撃破信号入力ピン　、Inverce（0だと�
 int destroyed_flag = 0; //撃破されていたか、フラグ。切り替え時のみの処理に使用
 
 //アームの姿勢検出用スイッチピン設定
-const int arm_shoulder_detect_pin = 23;
-const int arm_elbow_detect_pin = 19;
+const int arm_shoulder_detect_pin = 1;
+const int arm_elbow_detect_pin = 3;
 int arm_reseted = 0;
 
 // controller.set_mech_position_to_zero();
@@ -93,9 +93,16 @@ void setup()
 {
   M5.begin();
 
+  //撃破時停止機能のための入力
+  pinMode(destroyed_pin, INPUT_PULLUP);
+  //アーム初期位置リセット用ボタン
+  pinMode(arm_shoulder_detect_pin, INPUT_PULLUP);
+  pinMode(arm_elbow_detect_pin, INPUT_PULLUP);
+
   // init cybergear driver
   init_can();
   
+
   delay(1000);
 
   //表示設定
@@ -136,12 +143,7 @@ void setup()
   pinMode(SHOOT_DIR_1, OUTPUT); 
   digitalWrite(SHOOT_DIR_1, HIGH);//射出モータの方向を変える
 
-  //撃破時停止機能のための入力
-  pinMode(destroyed_pin, INPUT_PULLUP);
 
-  // //アーム初期位置リセット用ボタン
-  // pinMode(arm_shoulder_detect_pin, INPUT_PULLUP);
-  // pinMode(arm_elbow_detect_pin, INPUT_PULLUP);
 
   //コントローラ情報などリセット
   inital_data_set();
@@ -159,11 +161,13 @@ void setup()
 }
 
 const float MAX_SPEED = 25.0; //最高速度変更用,rad/s,CyberGear的MAXは30
-const float MAX_OMEGA = 30.0; //最高回転速度変更用 上から見た回転速度でrad/s,上から見て左回り
-const float SPIN_OMEGA = 15.0;//SPIN時の回転速度。??以下にしないと、首のサイバーギアが間に合わない。
-const float SPIN_NECK_GEARRATIO = 1.0; //首のギア比。減速で1より大きくする
-const float MECHANUM_LENGTH_X = 0.4;
-const float MECHANUM_LENGTH_Y = 0.6;
+const float MAX_OMEGA = PI; //最高回転速度変更用 上から見た回転速度でrad/s,上から見て左回り
+const float SPIN_OMEGA = PI;//SPIN時の回転速度。
+//SPIN_OMEGA*(MECHANUM_LENGTH_X+MECHANUM_LENGTH_Y)/MECHANUM_TIRE_Rを30以下にしないと、タイヤのサイバーギアが間に合わない。
+const float SPIN_NECK_GEARRATIO = 2; //首のギア比。減速で1より大きくする
+const float MECHANUM_TIRE_R = 0.127/2.0;
+const float MECHANUM_LENGTH_X = 0.612/2.0;
+const float MECHANUM_LENGTH_Y = 0.540/2.0;
 
 
 int right_holizontal_zero_pos=135;
@@ -236,9 +240,9 @@ int get_controller_data(){
   return flag;
 
 }
-void set_motion_speed_controll(CybergearMotionCommand &cmd,float vel){
+void set_motion_speed_controll(CybergearMotionCommand &cmd,float vel,float kp = DEFAULT_VELOCITY_KP){
   cmd.kp = 0;
-  cmd.kd = DEFAULT_VELOCITY_KP;
+  cmd.kd = kp;
   cmd.effort = 0;
   cmd.velocity = vel;
   cmd.position = 0;
@@ -250,11 +254,42 @@ void set_motion_position_controll(CybergearMotionCommand &cmd,float pos){
   cmd.velocity = 0;
   cmd.position = pos;
 }
-const float arm_reset_speed = 0.5;
+const float arm_reset_speed = 1.0;
+int arm_reset_status = 0;
 int do_arm_reset(){
-  set_motion_speed_controll((motion_commands[1]),arm_reset_speed);
-  controller.send_motion_command(motion_motor_ids[1],motion_commands[1]);
-
+  switch(arm_reset_status){
+    case 0://shoulder reset
+      set_motion_speed_controll((motion_commands[1]),-arm_reset_speed);
+      controller.send_motion_command(motion_motor_ids[1],motion_commands[1]);
+      set_motion_speed_controll((motion_commands[2]),0);
+      controller.send_motion_command(motion_motor_ids[2],motion_commands[2]);
+      if(digitalRead(arm_shoulder_detect_pin)==1){
+        arm_reset_status++;
+        controller.set_mech_position_to_zero(motion_motor_ids[1]);
+        set_motion_position_controll((motion_commands[1]),0.0);
+        controller.send_motion_command(motion_motor_ids[1],motion_commands[1]);
+      }
+      break;
+    case 1://elbow reset
+      set_motion_speed_controll((motion_commands[2]),arm_reset_speed);
+      controller.send_motion_command(motion_motor_ids[2],motion_commands[2]);
+      set_motion_position_controll((motion_commands[1]),0.0);
+      controller.send_motion_command(motion_motor_ids[1],motion_commands[1]);
+      if(digitalRead(arm_shoulder_detect_pin)==1){
+        arm_reset_status++;
+        arm_reseted = 1;
+        controller.set_mech_position_to_zero(motion_motor_ids[2]);
+        set_motion_position_controll((motion_commands[2]),0.0);
+        controller.send_motion_command(motion_motor_ids[2],motion_commands[2]);
+        return 1;
+      }
+      break;
+    default:
+      arm_reseted = 1;
+      return 1;
+      break;
+  }
+  return 0;
 }
 
 int arm_reset_check(int do_flag = 0){
@@ -326,8 +361,8 @@ void shoot_ready_set(int emergency = 0){
 const int servo_ready_angle_0 = 70;
 const int servo_shoot_angle_0 = 30;
 const int servo_ready_angle_1 = 55;
-const int servo_shoot_angle_1 = 90;
-const int servo_wait_cnt_max = 7; //射出スピードを設定。制御周期×この数＝左右1回ずつ射出する周期
+const int servo_shoot_angle_1 = 95;
+const int servo_wait_cnt_max = 8; //射出スピードを設定。制御周期×この数＝左右1回ずつ射出する周期
 
 /// @brief 射出用サーボをコントロールする
 void shoot_servo_controll(int emergency = 0){
@@ -359,6 +394,9 @@ void shoot_servo_controll(int emergency = 0){
         servo_angle_write(1,servo_ready_angle_1);
       }
       servo_cnt++;
+      if(servo_cnt==servo_wait_cnt_max){
+        servo_cnt = 0;
+      }
     }else{
       servo_cnt = 0;
     }
@@ -387,6 +425,10 @@ bool check_destroyed_stop(){
   if(flag = (digitalRead(destroyed_pin)==0)){
     if(destroyed_flag==0){
       controller.reset_motors();
+      for(int i = 0;i<3;i++){
+        set_motion_speed_controll(motion_commands[i],0.0);
+      }
+      controller.send_motion_command(motion_motor_ids,motion_commands);
       wireless_get_time = 0;
     }
   }else{
@@ -419,6 +461,64 @@ float get_neck_target(float position){
   return 2.0*PI*float(rotate_num);
 }
 
+const int arm_servo_bend  = 70;
+const int arm_servo_extend = 30;
+const int arm_servo_wait = 30;
+const int hand_servo_open = 55;
+const int hand_servo_hold = 90;
+const int arm_servo = 6;
+const int hand_servo = 7;
+void move_arm_servo(int mode){
+  switch (mode){
+    case 0://extend
+      servo_angle_write(arm_servo,arm_servo_extend);
+      servo_angle_write(hand_servo,hand_servo_open);
+      break;
+    case 1://bend
+      servo_angle_write(arm_servo,arm_servo_bend);
+      servo_angle_write(hand_servo,hand_servo_open);
+      break;
+      
+    case -1:
+    default:
+      servo_angle_write(arm_servo,arm_servo_wait);
+      servo_angle_write(hand_servo,hand_servo_open);
+    
+      break;
+  }
+
+}
+
+const float mt1_motor_bend_angle = 0;
+const float mt1_motor_extend_angle = PI/2;
+const float mt2_motor_bend_angle = -PI/2.0;
+const float mt2_motor_extend_angle = 0;
+
+void move_arm(){
+  static int old_x_button = 0;
+  static int old_arm_status = -1;
+  
+  if(arm_reset_check(destroyed_flag != 1 && wireless_get_time!=0)){//リセットがまだの場合、実行される
+      //armがリセット済みであった場合
+    if(old_x_button ==0 && x_button == 1){
+      if(old_arm_status !=0){//伸ばす。extend
+        set_motion_position_controll(motion_commands[1],mt1_motor_extend_angle);
+        set_motion_position_controll(motion_commands[2],mt2_motor_extend_angle);
+        old_arm_status = 0;
+      }else{//曲げるBend
+        set_motion_position_controll(motion_commands[1],mt1_motor_bend_angle);
+        set_motion_position_controll(motion_commands[2],mt2_motor_bend_angle);
+        old_arm_status = 1;
+      }
+      controller.send_motion_command(motion_motor_ids[1],motion_commands[1]);
+      controller.send_motion_command(motion_motor_ids[2],motion_commands[2]);
+    }
+
+  }
+  old_x_button = x_button;
+  move_arm_servo(old_arm_status);
+}
+
 void loop()
 {
   // update m5 satatus
@@ -426,6 +526,8 @@ void loop()
 
   if(check_destroyed_stop()){
     M5.Lcd.println("Destroyed detected!");
+  }else{
+    M5.Lcd.println("Not Destroyed now");
   }
 
   // update and get motor data
@@ -458,16 +560,21 @@ void loop()
   // Serial.printf("%d,%d,%d,%d,%d,%d,%d\n"
   // ,decoded_data[0],decoded_data[1],decoded_data[2],decoded_data[3]
   // ,decoded_data[4],decoded_data[5],decoded_data[6]);
+  //腕を動かす。呼ぶと、リセット、ボタン識別まで実施。
+  //move_arm();
+
+  
+  // M5.Lcd.println("calc movement done");
 
   //首の角度を検出
   float neck_angle = 0;
   float raw_neck_angle = 0;
-  MotorStatus neck_status;
-  if(controller.get_motor_status(motion_motor_ids[0],neck_status)){
-    raw_neck_angle = neck_status.position;
-    neck_angle = nearest_angle(raw_neck_angle/2.0);
-  }
-  M5.Lcd.printf("neck check %d ,pos = %f ,raw = %f\n",neck_angle, raw_neck_angle);
+  // MotorStatus neck_status;
+  // if(controller.get_motor_status(motion_motor_ids[0],neck_status)){
+  //   raw_neck_angle = neck_status.position;
+  //   neck_angle = nearest_angle(raw_neck_angle/2.0);
+  // }
+  // M5.Lcd.printf("neck check %d ,pos = %f ,raw = %f\n",neck_angle, raw_neck_angle);
   // int find_id = 0;
   // for(find_id= 0;find_id<status_list.size();++find_id){
   //   if(status_list[find_id].motor_id == motion_motor_ids[0]){
@@ -478,16 +585,16 @@ void loop()
   // if(status_list.size()==0 || status_list[find_id].motor_id != motion_motor_ids[0]){
   //   find_id = -1;
   // }
-  // M5.Lcd.printf("neck_angle %f status_list.size = %d\n",neck_angle,status_list.size());
+  M5.Lcd.printf("neck_angle %f status_list.size = %d\n",neck_angle,status_list.size());
 
   //add spin speed
-  if(spin_switch){
+  if(spin_switch&&wireless_get_time!=0){
     target_omega += SPIN_OMEGA;
-    // set_motion_speed_controll(motion_commands[0],SPIN_NECK_GEARRATIO * SPIN_OMEGA);
-    set_motion_position_controll(motion_commands[0],0.0);
+    set_motion_speed_controll(motion_commands[0],SPIN_NECK_GEARRATIO * SPIN_OMEGA, DEFAULT_VELOCITY_KP+1);
+    // set_motion_position_controll(motion_commands[0],0.0);
 
   }else{
-    set_motion_position_controll(motion_commands[0],0.0);
+    set_motion_speed_controll(motion_commands[0],0.0);
     // set_motion_position_controll(motion_commands[0],get_neck_target(raw_neck_angle));
     // if(find_id != -1){
     //   set_motion_position_controll(motion_commands[0],0.0);
@@ -497,15 +604,15 @@ void loop()
     //   set_motion_speed_controll(motion_commands[0],0.0f);
     // }
   }
-  M5.Lcd.printf("Spin_ON kp = %f, kd = %f, effort = %f, position = %f, velocity = %f \n",
+  M5.Lcd.printf("Spin kp = %f, kd = %f, effort = %f, position = %f, velocity = %f \n",
     motion_commands[0].kp,motion_commands[0].kd,motion_commands[0].effort,motion_commands[0].position,motion_commands[0].velocity);
 
     //calc each motor speed
   // {0,1,2,3} = {RrR, FrR, FrL, RrL} x-> right
-  speeds[0] =   target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y) * target_omega;
-  speeds[1] = - target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y) * target_omega;
-  speeds[2] = - target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y) * target_omega;
-  speeds[3] =   target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y) * target_omega;
+  speeds[0] =   target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
+  speeds[1] = - target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
+  speeds[2] = - target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
+  speeds[3] =   target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
 
   controller.send_speed_command(motor_ids, speeds);
   controller.send_motion_command(motion_motor_ids,motion_commands);
@@ -517,10 +624,21 @@ void loop()
   while(!(get_data_flag =get_controller_data())&&(!timer_flag||wireless_get_time==0)){
   }
   if(timer_flag==1){
+    if(wireless_get_time != 0){
+      controller.reset_motors();
+      for(int i = 0;i<3;i++){
+        set_motion_speed_controll(motion_commands[i],0.0);
+      }
+      controller.send_motion_command(motion_motor_ids,motion_commands);
+    }
     wireless_get_time = 0; 
+    
   }
   if(get_data_flag){
     wireless_get_time = millis();
+    if(timer_flag == 1){
+      controller.enable_motors();
+    }
     timer_flag = 0;
   }
   //受信できていないと推定されるとき
