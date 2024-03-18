@@ -6,6 +6,7 @@ const int arm_elbow_detect_pin = 3;
 int arm_reseted = 0;
 
 void init_arm(){
+  // controller.init(position_motor_ids, MODE_POSITION, &CAN0);
     
   //アーム初期位置リセット用ボタン
   pinMode(arm_shoulder_detect_pin, INPUT_PULLUP);

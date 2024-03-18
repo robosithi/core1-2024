@@ -10,6 +10,7 @@
 #include <Adafruit_PWMServoDriver.h>
 #include "servo.hh"
 #include "arm_control.hh"
+#include "neck_control.hh"
 
 
 
@@ -25,16 +26,13 @@ MCP_CAN CAN0(12);    // Set CS to pin 10
 // setup master can id and motor can id (default cybergear can id is 0x7F)
 uint8_t MASTER_CAN_ID = 0x00;
 
-std::vector<uint8_t> motor_ids = {127, 126, 125, 124};//speed controll list
-std::vector<float> speeds = {0.0f, 0.0f, 0.0f, 0.0f};
-
-std::vector<uint8_t> motion_motor_ids = {123, 122, 121};//speed controll list
-std::vector<CybergearMotionCommand> motion_commands = {{0.0f,0.0f,0.0f,0.0f,DEFAULT_VELOCITY_KP},
-                                                       {0.0f,0.0f,0.0f,0.0f,DEFAULT_VELOCITY_KP},
-                                                       {0.0f,0.0f,0.0f,0.0f,DEFAULT_VELOCITY_KP}};
+std::vector<uint8_t> motor_ids = {127, 126, 125, 124, 123};//speed controll list
+std::vector<float> speeds = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
 // init cybergeardriver
 CybergearController controller = CybergearController(MASTER_CAN_ID);
+
+NeckMotorController neckController;
 
 #define DATA_BUFFER_SIZE (50)
 char input[DATA_BUFFER_SIZE] = {0};
@@ -80,8 +78,6 @@ void setup()
   // init cybergear driver
   init_can();
 
-  //init arm motors
-  init_arm();
 
   delay(1000);
 
@@ -90,33 +86,28 @@ void setup()
   M5.Lcd.setCursor(0,0,2);
 
 
-  // init position offset
-  M5.Lcd.print("Init arm & neck motors ... ");
-  controller.init(motion_motor_ids, MODE_MOTION, &CAN0);
-  M5.Lcd.println("done");
-  controller.enable_motors();
-
-  controller.set_mech_position_to_zero(motion_motor_ids[0]);
-  
-  M5.Lcd.print("move to motor origin ... ");
-  controller.send_motion_command(motion_motor_ids, motion_commands);
-  delay(1000);
-  M5.Lcd.println("done");
-
   Serial2.begin(115200, SERIAL_8N1, 16,17);  // Init serial port 2.
 
   
-  // start bilateral mode
+  // start mechanum control
   M5.Lcd.print("starting mechanum speed controll ... ");
   controller.init(motor_ids, MODE_SPEED, &CAN0);
   // controller.enable_motors();
   M5.Lcd.println("done");
   controller.enable_motors();
+
+  // init position offset
+  M5.Lcd.print("Init arm & neck motors ... ");
+  neckController.init();
+  //init arm motors
+  init_arm();
+  M5.Lcd.println("done");
+  controller.enable_motors();
+
+
   M5.Lcd.println("Start All Cybergears, done");
   
-  //Servo module setup
-    pwm.begin();
-    pwm.setPWMFreq(50);
+  initServo();
 
   //set Pin mode
   pinMode(SHOOT_PIN, OUTPUT); 
@@ -142,9 +133,8 @@ void setup()
 
 const float MAX_SPEED = 25.0; //最高速度変更用,rad/s,CyberGear的MAXは30
 const float MAX_OMEGA = PI; //最高回転速度変更用 上から見た回転速度でrad/s,上から見て左回り
-const float SPIN_OMEGA = PI;//SPIN時の回転速度。
+// const float SPIN_OMEGA = PI;//SPIN時の回転速度。
 //SPIN_OMEGA*(MECHANUM_LENGTH_X+MECHANUM_LENGTH_Y)/MECHANUM_TIRE_Rを30以下にしないと、タイヤのサイバーギアが間に合わない。
-const float SPIN_NECK_GEARRATIO = 2; //首のギア比。減速で1より大きくする
 const float MECHANUM_TIRE_R = 0.127/2.0;
 const float MECHANUM_LENGTH_X = 0.612/2.0;
 const float MECHANUM_LENGTH_Y = 0.540/2.0;
@@ -337,10 +327,6 @@ bool check_destroyed_stop(){
   if(flag = (digitalRead(destroyed_pin)==0)){
     if(destroyed_flag==0){
       controller.reset_motors();
-      for(int i = 0;i<3;i++){
-        set_motion_speed_controll(motion_commands[i],0.0);
-      }
-      controller.send_motion_command(motion_motor_ids,motion_commands);
       wireless_get_time = 0;
     }
   }else{
@@ -411,36 +397,23 @@ void loop()
   // M5.Lcd.println("calc movement done");
 
   //首の角度を検出
-  float neck_angle = 0;
-  float raw_neck_angle = 0;
-  // MotorStatus neck_status;
-  // if(controller.get_motor_status(motion_motor_ids[0],neck_status)){
-  //   raw_neck_angle = neck_status.position;
-  //   neck_angle = nearest_angle(raw_neck_angle/2.0);
-  // }
-  // M5.Lcd.printf("neck check %d ,pos = %f ,raw = %f\n",neck_angle, raw_neck_angle);
-  // int find_id = 0;
-  // for(find_id= 0;find_id<status_list.size();++find_id){
-  //   if(status_list[find_id].motor_id == motion_motor_ids[0]){
-  //     neck_angle = nearest_angle(status_list[find_id].position/2.0);
-  //     break;
-  //   }
-  // }
-  // if(status_list.size()==0 || status_list[find_id].motor_id != motion_motor_ids[0]){
-  //   find_id = -1;
-  // }
-  M5.Lcd.printf("neck_angle %f status_list.size = %d\n",neck_angle,status_list.size());
+
+  int find_id = 0;
+  for(find_id= 0;find_id<status_list.size();++find_id){
+    if(status_list[find_id].motor_id == neckController.get_motor_id()){
+      neckController.set_status(status_list[find_id]);
+      break;
+    }
+  }
+  if(status_list.size()==0 || status_list[find_id].motor_id != neckController.get_motor_id()){
+    find_id = -1;
+  }
+  M5.Lcd.printf("status_list.size = %d find_id = %d\n",status_list.size(),find_id);
 
   //add spin speed
-  if(spin_switch&&wireless_get_time!=0){
-    target_omega += SPIN_OMEGA;
-    set_motion_speed_controll(motion_commands[0],SPIN_NECK_GEARRATIO * SPIN_OMEGA, DEFAULT_VELOCITY_KP+1);
-
-  }else{
-    set_motion_speed_controll(motion_commands[0],0.0);
-  }
-  M5.Lcd.printf("Spin kp = %f, kd = %f, effort = %f, position = %f, velocity = %f \n",
-    motion_commands[0].kp,motion_commands[0].kd,motion_commands[0].effort,motion_commands[0].position,motion_commands[0].velocity);
+  float spin_speed =   neckController.loop(wireless_get_time==0,spin_switch);
+  target_omega += spin_speed;
+  speeds[4] = spin_speed * SPIN_NECK_GEARRATIO;
 
     //calc each motor speed
   // {0,1,2,3} = {RrR, FrR, FrL, RrL} x-> right
@@ -450,7 +423,6 @@ void loop()
   speeds[3] =   target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
 
   controller.send_speed_command(motor_ids, speeds);
-  controller.send_motion_command(motion_motor_ids,motion_commands);
   shoot_ready_set(wireless_get_time == 0);
   shoot_servo_controll(wireless_get_time == 0);
 
@@ -461,10 +433,6 @@ void loop()
   if(timer_flag==1){
     if(wireless_get_time != 0){
       controller.reset_motors();
-      for(int i = 0;i<3;i++){
-        set_motion_speed_controll(motion_commands[i],0.0);
-      }
-      controller.send_motion_command(motion_motor_ids,motion_commands);
     }
     wireless_get_time = 0; 
     

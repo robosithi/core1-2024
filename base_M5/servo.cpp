@@ -17,6 +17,12 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
     50  // Analog servos run at ~50 Hz updates  模拟伺服以 ~50 Hz 更新运行
 
 
+void initServo(){
+  //Servo module setup
+    pwm.begin();
+    pwm.setPWMFreq(50);
+}
+
 void setServoPulse(uint8_t n, double pulse) {
     double pulselength;
     pulselength = 1000000;  // 1,000,000 us per second
