@@ -8,23 +8,9 @@
 #include <cybergear_controller.hh>
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
+#include "servo.hh"
+#include "arm_control.hh"
 
-
-/**
- * Servo Module settings
-*/
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40, Wire);
-
-#define SERVOMIN \
-    102  // This is the 'minimum' pulse length count (out of 4096)
-#define SERVOMAX \
-    512  // This is the 'maximum' pulse length count (out of 4096)
-#define USMIN \
-    500  // This is the rounded 'minimum' microsecond length based on the
-#define USMAX \
-    2500  // This is the rounded 'maximum' microsecond length based on the
-#define SERVO_FREQ \
-    50  // Analog servos run at ~50 Hz updates  模拟伺服以 ~50 Hz 更新运行
 
 
 /**
@@ -77,11 +63,6 @@ const double PWM_Frequency = 2000.0;
 const int destroyed_pin = 21; //撃破信号入力ピン　、Inverce（0だと撃破されている状態）
 int destroyed_flag = 0; //撃破されていたか、フラグ。切り替え時のみの処理に使用
 
-//アームの姿勢検出用スイッチピン設定
-const int arm_shoulder_detect_pin = 1;
-const int arm_elbow_detect_pin = 3;
-int arm_reseted = 0;
-
 // controller.set_mech_position_to_zero();
 
 //定時割り込み機能系設定
@@ -95,13 +76,12 @@ void setup()
 
   //撃破時停止機能のための入力
   pinMode(destroyed_pin, INPUT_PULLUP);
-  //アーム初期位置リセット用ボタン
-  pinMode(arm_shoulder_detect_pin, INPUT_PULLUP);
-  pinMode(arm_elbow_detect_pin, INPUT_PULLUP);
 
   // init cybergear driver
   init_can();
-  
+
+  //init arm motors
+  init_arm();
 
   delay(1000);
 
@@ -254,53 +234,6 @@ void set_motion_position_controll(CybergearMotionCommand &cmd,float pos){
   cmd.velocity = 0;
   cmd.position = pos;
 }
-const float arm_reset_speed = 1.0;
-int arm_reset_status = 0;
-int do_arm_reset(){
-  switch(arm_reset_status){
-    case 0://shoulder reset
-      set_motion_speed_controll((motion_commands[1]),-arm_reset_speed);
-      controller.send_motion_command(motion_motor_ids[1],motion_commands[1]);
-      set_motion_speed_controll((motion_commands[2]),0);
-      controller.send_motion_command(motion_motor_ids[2],motion_commands[2]);
-      if(digitalRead(arm_shoulder_detect_pin)==1){
-        arm_reset_status++;
-        controller.set_mech_position_to_zero(motion_motor_ids[1]);
-        set_motion_position_controll((motion_commands[1]),0.0);
-        controller.send_motion_command(motion_motor_ids[1],motion_commands[1]);
-      }
-      break;
-    case 1://elbow reset
-      set_motion_speed_controll((motion_commands[2]),arm_reset_speed);
-      controller.send_motion_command(motion_motor_ids[2],motion_commands[2]);
-      set_motion_position_controll((motion_commands[1]),0.0);
-      controller.send_motion_command(motion_motor_ids[1],motion_commands[1]);
-      if(digitalRead(arm_shoulder_detect_pin)==1){
-        arm_reset_status++;
-        arm_reseted = 1;
-        controller.set_mech_position_to_zero(motion_motor_ids[2]);
-        set_motion_position_controll((motion_commands[2]),0.0);
-        controller.send_motion_command(motion_motor_ids[2],motion_commands[2]);
-        return 1;
-      }
-      break;
-    default:
-      arm_reseted = 1;
-      return 1;
-      break;
-  }
-  return 0;
-}
-
-int arm_reset_check(int do_flag = 0){
-  int return_num = arm_reseted;
-  if(arm_reseted ==0){
-    if(do_flag==1){
-      return_num = do_arm_reset();
-    }
-  }
-  return return_num;
-}
 // std::vector<uint8_t> position_motor_ids = {122, 121};//speed controll list
 // std::vector<float> cyber_positions = {0.0f, 0.0f};
 //DEFAULT_POSITION_KP
@@ -315,27 +248,6 @@ int arm_reset_check(int do_flag = 0){
 //   float kp;         //!< motion control kp
 //   float kd;         //!< motion control kd
 // };
-
-void setServoPulse(uint8_t n, double pulse) {
-    double pulselength;
-    pulselength = 1000000;  // 1,000,000 us per second
-    pulselength /= 50;      // 50 Hz
-    // Serial.print(pulselength);
-    // Serial.println(" us per period");
-    pulselength /= 4096;  // 12 bits of resolution
-    // Serial.print(pulselength);
-    // Serial.println(" us per bit");
-    pulse *= 1000;
-    pulse /= pulselength;
-    // Serial.println(pulse);
-    pwm.setPWM(n, 0, pulse);
-}
-
-void servo_angle_write(uint8_t n, int Angle) {
-    double pulse = Angle;
-    pulse        = pulse / 90 + 0.5;
-    setServoPulse(n, pulse);
-}
 
 /// @brief 射出モータのON/OFFを切り替える関数
 void shoot_ready_set(int emergency = 0){
@@ -461,63 +373,8 @@ float get_neck_target(float position){
   return 2.0*PI*float(rotate_num);
 }
 
-const int arm_servo_bend  = 70;
-const int arm_servo_extend = 30;
-const int arm_servo_wait = 30;
-const int hand_servo_open = 55;
-const int hand_servo_hold = 90;
-const int arm_servo = 6;
-const int hand_servo = 7;
-void move_arm_servo(int mode){
-  switch (mode){
-    case 0://extend
-      servo_angle_write(arm_servo,arm_servo_extend);
-      servo_angle_write(hand_servo,hand_servo_open);
-      break;
-    case 1://bend
-      servo_angle_write(arm_servo,arm_servo_bend);
-      servo_angle_write(hand_servo,hand_servo_open);
-      break;
-      
-    case -1:
-    default:
-      servo_angle_write(arm_servo,arm_servo_wait);
-      servo_angle_write(hand_servo,hand_servo_open);
-    
-      break;
-  }
 
-}
 
-const float mt1_motor_bend_angle = 0;
-const float mt1_motor_extend_angle = PI/2;
-const float mt2_motor_bend_angle = -PI/2.0;
-const float mt2_motor_extend_angle = 0;
-
-void move_arm(){
-  static int old_x_button = 0;
-  static int old_arm_status = -1;
-  
-  if(arm_reset_check(destroyed_flag != 1 && wireless_get_time!=0)){//リセットがまだの場合、実行される
-      //armがリセット済みであった場合
-    if(old_x_button ==0 && x_button == 1){
-      if(old_arm_status !=0){//伸ばす。extend
-        set_motion_position_controll(motion_commands[1],mt1_motor_extend_angle);
-        set_motion_position_controll(motion_commands[2],mt2_motor_extend_angle);
-        old_arm_status = 0;
-      }else{//曲げるBend
-        set_motion_position_controll(motion_commands[1],mt1_motor_bend_angle);
-        set_motion_position_controll(motion_commands[2],mt2_motor_bend_angle);
-        old_arm_status = 1;
-      }
-      controller.send_motion_command(motion_motor_ids[1],motion_commands[1]);
-      controller.send_motion_command(motion_motor_ids[2],motion_commands[2]);
-    }
-
-  }
-  old_x_button = x_button;
-  move_arm_servo(old_arm_status);
-}
 
 void loop()
 {
@@ -536,15 +393,6 @@ void loop()
     controller.get_motor_status(status_list);
   }
   
-  // int stick_x_raw = analogReadMilliVolts(STICK_X_INPUT);
-  // int stick_y_raw = analogReadMilliVolts(STICK_Y_INPUT);
-  // const float offset_x = 1.1;
-  // const float offset_y = 1.23;
-  // float target_x = 2.0 * (float (stick_x_raw)/3000.0 ) - offset_x;
-  // float target_y = -1*(2.0 * (float (stick_y_raw)/3000.0 ) - offset_y);
-  // float target_omega = 0.0; 
-
-  
   if(y_button){//Stickのイニシャライズ
     left_holizontal_zero_pos = decoded_data[2];
     left_vertical_zero_pos = decoded_data[1];
@@ -552,16 +400,12 @@ void loop()
     right_vertical_zero_pos = decoded_data[3];
   }
 
-
   float target_x = MAX_SPEED * calculate_ratio(decoded_data[2],left_holizontal_zero_pos);
   float target_y = MAX_SPEED * calculate_ratio(decoded_data[1],left_vertical_zero_pos,-1);
   float target_omega = MAX_OMEGA * calculate_ratio(decoded_data[4],right_holizontal_zero_pos);
   
-  // Serial.printf("%d,%d,%d,%d,%d,%d,%d\n"
-  // ,decoded_data[0],decoded_data[1],decoded_data[2],decoded_data[3]
-  // ,decoded_data[4],decoded_data[5],decoded_data[6]);
   //腕を動かす。呼ぶと、リセット、ボタン識別まで実施。
-  //move_arm();
+  move_arm(wireless_get_time == 0,x_button);
 
   
   // M5.Lcd.println("calc movement done");
@@ -591,18 +435,9 @@ void loop()
   if(spin_switch&&wireless_get_time!=0){
     target_omega += SPIN_OMEGA;
     set_motion_speed_controll(motion_commands[0],SPIN_NECK_GEARRATIO * SPIN_OMEGA, DEFAULT_VELOCITY_KP+1);
-    // set_motion_position_controll(motion_commands[0],0.0);
 
   }else{
     set_motion_speed_controll(motion_commands[0],0.0);
-    // set_motion_position_controll(motion_commands[0],get_neck_target(raw_neck_angle));
-    // if(find_id != -1){
-    //   set_motion_position_controll(motion_commands[0],0.0);
-    //   // set_motion_position_controll(motion_commands[0],get_neck_target(raw_neck_angle));
-    //   M5.Lcd.printf("neck id check %d ,pos = %f \n",status_list[find_id].motor_id,status_list[find_id].position);
-    // }else{
-    //   set_motion_speed_controll(motion_commands[0],0.0f);
-    // }
   }
   M5.Lcd.printf("Spin kp = %f, kd = %f, effort = %f, position = %f, velocity = %f \n",
     motion_commands[0].kp,motion_commands[0].kd,motion_commands[0].effort,motion_commands[0].position,motion_commands[0].velocity);
