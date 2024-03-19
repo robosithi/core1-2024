@@ -366,6 +366,8 @@ void loop()
 {
   // update m5 satatus
   M5.update();
+  
+  // controller.reset_motors();
 
   if(check_destroyed_stop()){
     M5.Lcd.println("Destroyed detected!");
@@ -408,13 +410,24 @@ void loop()
   if(status_list.size()==0 || status_list[find_id].motor_id != neckController.get_motor_id()){
     find_id = -1;
   }
-  M5.Lcd.printf("status_list.size = %d find_id = %d\n",status_list.size(),find_id);
+  M5.Lcd.printf("status_list.size = %d find_id = %d spin_motor_pos = %f\n",status_list.size(),find_id,neckController.get_pos());
 
   //add spin speed
   float spin_speed =   neckController.loop(wireless_get_time==0,spin_switch);
-  target_omega += spin_speed;
+  if(spin_switch){
+    target_omega += spin_speed;
+  }
   speeds[4] = spin_speed * SPIN_NECK_GEARRATIO;
+  
+  M5.Lcd.printf("spin speed = %f\n",spin_speed);
 
+  float neck_angle = neckController.nearest_angle(neckController.get_pos());
+  float cos_theta = cos(neck_angle);
+  float sin_theta = sin(neck_angle);
+  float raw_target_x = target_x;
+  float raw_target_y = target_y;
+  target_x = raw_target_x * cos_theta - raw_target_y * sin_theta;
+  target_y = raw_target_x * sin_theta + raw_target_y * cos_theta;
     //calc each motor speed
   // {0,1,2,3} = {RrR, FrR, FrL, RrL} x-> right
   speeds[0] =   target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;

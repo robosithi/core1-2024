@@ -11,6 +11,7 @@
 #include"common.hh"
 
 extern const float SPIN_NECK_GEARRATIO;
+extern const float CYBERGEAR_GEARRATIO;//Cybergearのギア比
 extern const float SPIN_OMEGA;//SPIN時の回転速度。
 //SPIN_OMEGA*(MECHANUM_LENGTH_X+MECHANUM_LENGTH_Y)/MECHANUM_TIRE_Rを30以下にしないと、タイヤのサイバーギアが間に合わない。
 
@@ -24,13 +25,14 @@ public:
         pos_gain = 1;
         max_speed = PI;
         motor_status = {0,0,0,0,0,0,0,0,0};
-        front_threshould = PI/8;
+        front_threshould = -PI;
+        pos_offset_sum = 0;
     }
     void init();
     void position_control(float pos);
     void speed_control(float speed);
     float get_pos(){
-        return ref_position;
+        return (motor_status.position + pos_offset_sum)/(SPIN_NECK_GEARRATIO);
     }
     float get_speed(){
         return ref_speed;
@@ -44,15 +46,16 @@ public:
         }
     }
     float loop(int emergency,int spin_switch);
+    float nearest_angle (float angle,float offset = 0.0);
 private:
     uint8_t motor_id;
     float ref_position;
     float ref_speed;
     float pos_gain;
     float max_speed;
+    float pos_offset_sum;
     MotorStatus motor_status;
-    float nearest_angle (float angle,float offset = 0.0);
-    float get_neck_target(float position);
+    // float get_neck_target(float position);
     float front_threshould;
 };
 

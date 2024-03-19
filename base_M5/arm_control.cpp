@@ -74,29 +74,34 @@ int arm_reset_check(int do_flag = 0){
   return return_num;
 }
 
-const int arm_servo_bend  = 70;
-const int arm_servo_extend = 30;
-const int arm_servo_wait = 30;
-const int hand_servo_open = 55;
-const int hand_servo_hold = 90;
+const int arm_servo_bend  = 30;
+const int arm_servo_extend = 65;
+const int arm_servo_wait = 100;
+const int hand_servo_open = 70;
+const int hand_servo_hold = 70;
+const int camera_servo_bend = 55;
+const int camera_servo_extend = 90;
 const int arm_servo = 6;
 const int hand_servo = 7;
+const int camera_servo = 8;
 void move_arm_servo(int mode){
   switch (mode){
     case 0://extend
       servo_angle_write(arm_servo,arm_servo_extend);
       servo_angle_write(hand_servo,hand_servo_open);
+      servo_angle_write(camera_servo,camera_servo_extend);
       break;
     case 1://bend
       servo_angle_write(arm_servo,arm_servo_bend);
       servo_angle_write(hand_servo,hand_servo_open);
+      servo_angle_write(camera_servo,camera_servo_bend);
       break;
       
     case -1:
     default:
       servo_angle_write(arm_servo,arm_servo_wait);
       servo_angle_write(hand_servo,hand_servo_open);
-    
+      servo_angle_write(camera_servo,camera_servo_bend);    
       break;
   }
 
