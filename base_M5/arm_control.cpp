@@ -19,7 +19,7 @@ const float arm_reset_speed = 0.02;
 
 
 void init_arm(){
-  controller.init(position_motor_ids, MODE_POSITION, &CAN0);
+  // controller.init(position_motor_ids, MODE_POSITION, &CAN0);
     
   //アーム初期位置リセット用ボタン
   pinMode(arm_shoulder_detect_pin, INPUT_PULLUP);
@@ -32,7 +32,7 @@ void set_res_pos_fromDiff(int id,float diff){
 }
 
 int arm_reset_status = 0;
-int do_arm_reset(){
+int do_arm_reset(CybergearMotionCommand cmd[2]){
   switch(arm_reset_status){
     case 0://shoulder reset
       set_res_pos_fromDiff(0,-arm_reset_speed);
@@ -60,7 +60,7 @@ int do_arm_reset(){
       return 1;
       break;
   }
-  controller.send_position_command(position_motor_ids,ref_position);
+  // controller.send_position_command(position_motor_ids,ref_position);
   old_position[0] = ref_position[0];
   old_position[1] = ref_position[1];
   
@@ -68,12 +68,10 @@ int do_arm_reset(){
   return 0;
 }
 
-int arm_reset_check(int do_flag = 0){
+int arm_reset_check(){
+  return arm_reseted;
   int return_num = arm_reseted;
   if(arm_reseted ==0){
-    if(do_flag==1){
-      return_num = do_arm_reset();
-    }
   }
   return return_num;
 }
@@ -111,11 +109,11 @@ void move_arm_servo(int mode){
 
 }
 
-void move_arm(int emergency ,int arm_button){
+void move_arm(int emergency ,int arm_button,CybergearMotionCommand cmd[2]){
   static int old_button = 0;
   static int old_arm_status = -1;
   
-  if(arm_reset_check(!emergency&&arm_button)){//リセットがまだの場合、実行される
+  if(arm_reset_check()){//リセットがまだかどうか判定
       //armがリセット済みであった場合
     if(old_button ==0 && arm_button == 1){
       if(old_arm_status !=0){//伸ばす。extend
@@ -128,8 +126,12 @@ void move_arm(int emergency ,int arm_button){
         old_arm_status = 1;
       }
       
+    }else{
+      if(!emergency){
+        do_arm_reset(cmd);
+      }
     }
-    controller.send_position_command(position_motor_ids,ref_position);
+    // controller.send_position_command(position_motor_ids,ref_position);
   }
   old_button = arm_button;
   move_arm_servo(old_arm_status);

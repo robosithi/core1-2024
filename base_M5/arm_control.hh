@@ -21,7 +21,7 @@ void init_arm();
 
 int do_arm_reset();
 int arm_reset_check(int do_flag);
-void move_arm(int emergency ,int arm_button);
+void move_arm(int emergency ,int arm_button,CybergearMotionCommand cmd[2]);
 
 void move_arm_servo(int mode);
 #endif

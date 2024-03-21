@@ -26,8 +26,9 @@ MCP_CAN CAN0(12);    // Set CS to pin 10
 // setup master can id and motor can id (default cybergear can id is 0x7F)
 uint8_t MASTER_CAN_ID = 0x00;
 
-std::vector<uint8_t> motor_ids = {127, 126, 125, 124, 123};//speed controll list
-std::vector<float> speeds = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+std::vector<uint8_t> motor_ids = {127, 126, 125, 124, 123, 122, 121};//Motion controll list
+std::vector<CybergearMotionCommand> motions = {{0.0f, 0.0f, 0.0f, 0.0f, 0.0f},{0.0f, 0.0f, 0.0f, 0.0f, 0.0f},{0.0f, 0.0f, 0.0f, 0.0f, 0.0f},{0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+{0.0f, 0.0f, 0.0f, 0.0f, 0.0f},{0.0f, 0.0f, 0.0f, 0.0f, 0.0f},{0.0f, 0.0f, 0.0f, 0.0f, 0.0f}};
 
 // init cybergeardriver
 CybergearController controller = CybergearController(MASTER_CAN_ID);
@@ -58,7 +59,7 @@ const double PWM_Frequency = 2000.0;
                             // PWM周波数 Maxfreq=80000000.0/2^n[Hz]
 
 //撃破時動作停止系変数宣言
-const int destroyed_pin = 21; //撃破信号入力ピン　、Inverce（0だと撃破されている状態）
+const int destroyed_pin = 21; //撃破信号入力ピン（1だと撃破されている状態）
 int destroyed_flag = 0; //撃破されていたか、フラグ。切り替え時のみの処理に使用
 
 // controller.set_mech_position_to_zero();
@@ -73,7 +74,7 @@ void setup()
   M5.begin();
 
   //撃破時停止機能のための入力
-  pinMode(destroyed_pin, INPUT_PULLUP);
+  pinMode(destroyed_pin, INPUT);
 
   // init cybergear driver
   init_can();
@@ -351,7 +352,7 @@ void inital_data_set(){
 
 bool check_destroyed_stop(){
   bool flag = 0;
-  if(flag = (digitalRead(destroyed_pin)==0)){
+  if(flag = (digitalRead(destroyed_pin)==1)){
     if(destroyed_flag==0){
       controller.reset_motors();
       wireless_get_time = 0;
@@ -386,7 +387,26 @@ bool check_destroyed_stop(){
 //   return 2.0*PI*float(rotate_num);
 // }
 
-
+  // float position;   //!< target position
+  // float velocity;   //!< target velocity (rad/sec)
+  // float effort;     //!< target effort
+  // float kp;         //!< motion control kp
+  // float kd;         //!< motion control kd
+void set_motion_speed_only(CybergearMotionCommand &cmd,float vel){
+  cmd.position = 0;
+  cmd.velocity = vel;
+  cmd.effort = 0;
+  cmd.kp = 0;
+  // cmd.kd = 0.5;
+  cmd.kd = DEFAULT_VELOCITY_KP;
+}
+void set_motion_position_only(CybergearMotionCommand &cmd,float pos){
+  cmd.position = pos;
+  cmd.velocity = 0;
+  cmd.effort = 0;
+  cmd.kp = DEFAULT_POSITION_KP;
+  cmd.kd = 0;
+}
 
 
 void loop()
@@ -420,8 +440,8 @@ void loop()
   float target_omega = MAX_OMEGA * calculate_ratio(decoded_data[4],right_holizontal_zero_pos);
   
   //腕を動かす。呼ぶと、リセット、ボタン識別まで実施。
-   move_arm(wireless_get_time == 0,0);
-  //  move_arm(wireless_get_time == 0,x_button);
+   move_arm(wireless_get_time == 0,0,&(motions[5]));
+  //  move_arm(wireless_get_time == 0,x_button,,motions+5);
 
   
   // M5.Lcd.println("calc movement done");
@@ -446,10 +466,10 @@ void loop()
     target_omega += spin_speed;
   }
   if(b_button && !spin_switch){
-    speeds[4] = -2.0 * target_omega;
+    set_motion_speed_only(motions[4], -2.0 * target_omega);
     target_omega = 0;
   }else{
-    speeds[4] = spin_speed * SPIN_NECK_GEARRATIO;
+    set_motion_speed_only(motions[4], spin_speed * SPIN_NECK_GEARRATIO);
   }
   M5.Lcd.printf("spin speed = %f\n",spin_speed);
 
@@ -464,17 +484,20 @@ void loop()
   // {0,1,2,3} = {RrR, FrR, FrL, RrL} x-> right
 
 
-  speeds[0] =   target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
-  speeds[1] = - target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
-  speeds[2] = - target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
-  speeds[3] =   target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
+  set_motion_speed_only(motions[0], target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega);
+  set_motion_speed_only(motions[1], - target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega);
+  set_motion_speed_only(motions[2], - target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega);
+  set_motion_speed_only(motions[3], target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega);
 
-  // //reset base for arm debug
-  // for(int i=0;i<5;i++){
-  //   speeds[i] = 0.0;
-  // }
+  //reset base for arm debug
+  M5.Lcd.println("pos,kp,vel,kd,ff");
+  for(int i=0;i<5;i++){
+    
+    M5.Lcd.printf("No%d={%.1f,%.1f,%.1f,%.1f,%.1f}\n",i,motions[i].position,motions[i].kp,motions[i].velocity,motions[i].kd,motions[i].effort);
+    // speeds[i] = 0.0;
+  }
 
-  controller.send_speed_command(motor_ids, speeds);
+  controller.send_motion_command(motor_ids, motions);
   shoot_ready_set(wireless_get_time == 0);
   shoot_servo_controll(wireless_get_time == 0,neckController.nearest_angle(neckController.get_pos()*4.0-PI)/4.0);
 
@@ -508,10 +531,10 @@ void loop()
   M5.Lcd.clear(BLACK);
   M5.Lcd.setCursor(0,0,2);
   M5.Lcd.printf("Stick : %3d, %3d ,%3d,%3d \n",decoded_data[1],decoded_data[2],decoded_data[3],decoded_data[4]);
-  M5.Lcd.printf("Speed : %.3f, %.3f ,%.3f \n",target_x,target_y,target_omega);
-  M5.Lcd.printf("Motor : %.3f, %.3f, %.3f, %.3f \n",speeds[0],speeds[1],speeds[2],speeds[3]);
   M5.Lcd.printf("Button: %02x,A:%d, B:%d,X:%d, Y:%d, SPIN:%d, SHOOT:%d \n",decoded_data[5]
     ,a_button,b_button, x_button,y_button,spin_switch,shoot_ready);
+  M5.Lcd.printf("Speed : %.3f, %.3f ,%.3f \n",target_x,target_y,target_omega);
+  M5.Lcd.printf("Motor : %.3f, %.3f, %.3f, %.3f \n",motions[0].velocity,motions[1].velocity,motions[2].velocity,motions[3]);
 
   M5.Lcd.printf("disconnect_counter %d \n",wireless_get_time);
 
