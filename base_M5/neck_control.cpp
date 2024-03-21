@@ -1,6 +1,6 @@
 #include "neck_control.hh"
 
-const float SPIN_OMEGA = PI/8;//SPIN時の回転速度。
+const float SPIN_OMEGA = PI/2.0;//SPIN時の回転速度。max = PI
 //SPIN_OMEGA*(MECHANUM_LENGTH_X+MECHANUM_LENGTH_Y)/MECHANUM_TIRE_Rを30以下にしないと、タイヤのサイバーギアが間に合わない。
 const float SPIN_NECK_GEARRATIO = 2.0; //首のギア比。減速で1より大きくする
 // const float CYBERGEAR_GEARRATIO = 7.75;//Cybergearのギア比
@@ -44,12 +44,18 @@ float NeckMotorController::nearest_angle (float angle,float offset){
 //   return 2.0*PI*float(rotate_num);
 // }
 
+void NeckMotorController::interrupt(){
+
+
+}
+
 /// @brief neckMotorを動かすために毎周期呼ぶ関数
 /// @param emergency ///緊急停止フラグ。撃破や無線断絶時に使用
 /// @param spin_switch ///SPINさせるかどうかのスイッチ。ボタン入力を想定
 /// @return 回転速度をFloatで返す。0の場合もある。
 float NeckMotorController::loop(int emergency,int spin_switch){
     static float ret=0.0;
+    old_spin_switch = spin_switch;
     static float old_angle = 0.0;
     if(abs(motor_status.position)>2*PI){
       //2PI毎に値をリセット・それを積算して絶対角度を取得する
@@ -74,8 +80,10 @@ float NeckMotorController::loop(int emergency,int spin_switch){
         old_angle = nearest_angle(get_pos()*2.0);
     }else{
       M5.Lcd.printf("angle_distance = %f\n",nearest_angle(get_pos()*2.0));
-      if((nearest_angle(get_pos()*2.0)*old_angle)<front_threshould){
-        //2をかけるのは前後をOKにするため
+      // if(abs(nearest_angle(get_pos()*2.0)<PI/8)){
+      if(abs(nearest_angle(get_pos()*2.0)<PI/8)||((nearest_angle(get_pos()*2.0)*old_angle)<0&&(nearest_angle(get_pos()*2.0)*old_angle)>-1)){
+        //2をかけるのは前後をOKにするため。
+        //１個前との掛け算が０を下回っているとき、正負が入れ替わっている。-piとpiのマタギでないことを確認するための閾値
           //speed_control(0);
           ret = 0;
       }else{

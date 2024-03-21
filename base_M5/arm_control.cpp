@@ -5,14 +5,6 @@ const int arm_shoulder_detect_pin = 1;
 const int arm_elbow_detect_pin = 3;
 int arm_reseted = 0;
 
-void init_arm(){
-  // controller.init(position_motor_ids, MODE_POSITION, &CAN0);
-    
-  //アーム初期位置リセット用ボタン
-  pinMode(arm_shoulder_detect_pin, INPUT_PULLUP);
-  pinMode(arm_elbow_detect_pin, INPUT_PULLUP);
-}
-
 
 std::vector<uint8_t> position_motor_ids = {122, 121};//position controll list
 std::vector<float> old_position = {0.0f, 0.0f};
@@ -23,7 +15,17 @@ const float mt0_motor_bend_angle = 0;
 const float mt0_motor_extend_angle = PI/2;
 const float mt1_motor_bend_angle = -PI/2.0;
 const float mt1_motor_extend_angle = 0;
-const float arm_reset_speed = 0.2;
+const float arm_reset_speed = 0.02;
+
+
+void init_arm(){
+  controller.init(position_motor_ids, MODE_POSITION, &CAN0);
+    
+  //アーム初期位置リセット用ボタン
+  pinMode(arm_shoulder_detect_pin, INPUT_PULLUP);
+  pinMode(arm_elbow_detect_pin, INPUT_PULLUP);
+}
+
 
 void set_res_pos_fromDiff(int id,float diff){
     ref_position[id]= old_position[id]+diff;
@@ -61,6 +63,8 @@ int do_arm_reset(){
   controller.send_position_command(position_motor_ids,ref_position);
   old_position[0] = ref_position[0];
   old_position[1] = ref_position[1];
+  
+  M5.Lcd.printf("DoingArmReset ref 0=%f zero 0=%f ref 1=%f zero 1=%f\n",ref_position[0],zero_position[0],ref_position[1],zero_position[1]);
   return 0;
 }
 
@@ -74,13 +78,13 @@ int arm_reset_check(int do_flag = 0){
   return return_num;
 }
 
-const int arm_servo_bend  = 30;
-const int arm_servo_extend = 65;
-const int arm_servo_wait = 100;
-const int hand_servo_open = 70;
-const int hand_servo_hold = 70;
-const int camera_servo_bend = 55;
-const int camera_servo_extend = 90;
+const int arm_servo_bend  = 140;
+const int arm_servo_extend = 86;
+const int arm_servo_wait = 40;
+const int hand_servo_open = 80;
+const int hand_servo_hold = 64;
+const int camera_servo_bend = 80;//64~99
+const int camera_servo_extend = 70;
 const int arm_servo = 6;
 const int hand_servo = 7;
 const int camera_servo = 8;
@@ -111,16 +115,16 @@ void move_arm(int emergency ,int arm_button){
   static int old_button = 0;
   static int old_arm_status = -1;
   
-  if(arm_reset_check(!emergency)){//リセットがまだの場合、実行される
+  if(arm_reset_check(!emergency&&arm_button)){//リセットがまだの場合、実行される
       //armがリセット済みであった場合
     if(old_button ==0 && arm_button == 1){
       if(old_arm_status !=0){//伸ばす。extend
-        ref_position[0] = mt0_motor_extend_angle;
-        ref_position[1] = mt1_motor_extend_angle;
+        ref_position[0] = mt0_motor_extend_angle-zero_position[0];
+        ref_position[1] = mt1_motor_extend_angle-zero_position[1];
         old_arm_status = 0;
       }else{//曲げるBend
-        ref_position[0] = mt0_motor_bend_angle;
-        ref_position[1] = mt1_motor_bend_angle;
+        ref_position[0] = mt0_motor_bend_angle-zero_position[0];
+        ref_position[1] = mt1_motor_bend_angle-zero_position[1];
         old_arm_status = 1;
       }
       

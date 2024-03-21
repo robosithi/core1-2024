@@ -25,8 +25,9 @@ public:
         pos_gain = 1;
         max_speed = PI;
         motor_status = {0,0,0,0,0,0,0,0,0};
-        front_threshould = -PI;
+        front_threshould = -2;
         pos_offset_sum = 0;
+        old_spin_switch = 0;
     }
     void init();
     void position_control(float pos);
@@ -47,6 +48,7 @@ public:
     }
     float loop(int emergency,int spin_switch);
     float nearest_angle (float angle,float offset = 0.0);
+    void interrupt();
 private:
     uint8_t motor_id;
     float ref_position;
@@ -54,6 +56,7 @@ private:
     float pos_gain;
     float max_speed;
     float pos_offset_sum;
+    int old_spin_switch;
     MotorStatus motor_status;
     // float get_neck_target(float position);
     float front_threshould;

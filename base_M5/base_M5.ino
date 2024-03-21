@@ -52,7 +52,7 @@ const uint8_t nBits_forPWM = 8; // PWMに使用するビット数　n=1～16[bit
 const uint8_t PWM_CH = 2;   // PWMチャンネル
 const uint8_t SHOOT_DIR_1 = 25;   // DIRチャンネル
 const uint8_t SHOOT_PIN = 2;  // PWM出力に使用するGPIO PIN番号
-const int PWM_Values = 70; //デューティ 実質的な射出速度 70->約27%
+const int PWM_Values = 102; //デューティ 実質的な射出速度255->full. motorfull=128 70->約27%, 102->40%
                             //MaxDuty=2^n (nBits_forPWM)  DutyRatio = Duty/MaxDuty
 const double PWM_Frequency = 2000.0;
                             // PWM周波数 Maxfreq=80000000.0/2^n[Hz]
@@ -131,8 +131,8 @@ void setup()
   M5.Lcd.println("System all green!");
 }
 
-const float MAX_SPEED = 25.0; //最高速度変更用,rad/s,CyberGear的MAXは30
-const float MAX_OMEGA = PI; //最高回転速度変更用 上から見た回転速度でrad/s,上から見て左回り
+const float MAX_SPEED = 15.0; //最高速度変更用,rad/s,CyberGear的MAXは30
+const float MAX_OMEGA = PI/2; //最高回転速度変更用 上から見た回転速度でrad/s,上から見て左回り
 // const float SPIN_OMEGA = PI;//SPIN時の回転速度。
 //SPIN_OMEGA*(MECHANUM_LENGTH_X+MECHANUM_LENGTH_Y)/MECHANUM_TIRE_Rを30以下にしないと、タイヤのサイバーギアが間に合わない。
 const float MECHANUM_TIRE_R = 0.127/2.0;
@@ -261,13 +261,28 @@ void shoot_ready_set(int emergency = 0){
 }
 
 const int servo_ready_angle_0 = 70;
-const int servo_shoot_angle_0 = 30;
+const int servo_shoot_angle_0 = 30;//(diff が40くらい)
 const int servo_ready_angle_1 = 55;
 const int servo_shoot_angle_1 = 95;
 const int servo_wait_cnt_max = 8; //射出スピードを設定。制御周期×この数＝左右1回ずつ射出する周期
 
+const float shoot_min_neck_angle = -(2.0/9.0)*PI;
+const float shoot_max_neck_angle = PI/12;
+
+bool shoot_angle_check(float angle){
+  return true;//角度情報が正しくとれるようになるまでの処置
+
+  if(angle<shoot_min_neck_angle){
+    return true;
+  }
+  if(angle>shoot_max_neck_angle){
+    return true;
+  }
+  return false;
+}
+
 /// @brief 射出用サーボをコントロールする
-void shoot_servo_controll(int emergency = 0){
+void shoot_servo_controll(int emergency,float angle){
   static int old_pattarn = -1;
   if(emergency){
     if(old_pattarn !=0){
@@ -279,21 +294,33 @@ void shoot_servo_controll(int emergency = 0){
   }
 
   static int servo_cnt = 0; 
-  if(a_button){
+  if(a_button&& shoot_ready){
     if(servo_cnt < servo_wait_cnt_max/2){
-      if(old_pattarn!=1){
+      if(old_pattarn!=1&&shoot_angle_check(-angle)){
+        //Shoot left
         old_pattarn = 1;
         //charge 0, shoot 1
         servo_angle_write(0,servo_ready_angle_0);
         servo_angle_write(1,servo_shoot_angle_1);
+      }else if(old_pattarn!=1){
+        old_pattarn = 0;
+        servo_angle_write(0,servo_ready_angle_0);
+        servo_angle_write(1,servo_ready_angle_1);
+
       }
       servo_cnt ++;
     }else if(servo_cnt < servo_wait_cnt_max){
-      if(old_pattarn!=2){
+      //Shoot right
+      if(old_pattarn!=2&&shoot_angle_check(angle)){
         old_pattarn = 2;
         //shoot 0, charge 1
         servo_angle_write(0,servo_shoot_angle_0);
         servo_angle_write(1,servo_ready_angle_1);
+      }else if(old_pattarn!=2){
+        old_pattarn = 0;
+        servo_angle_write(0,servo_ready_angle_0);
+        servo_angle_write(1,servo_ready_angle_1);
+
       }
       servo_cnt++;
       if(servo_cnt==servo_wait_cnt_max){
@@ -338,26 +365,26 @@ bool check_destroyed_stop(){
   return flag;
 }
 
-float nearest_angle (float angle,float target = 0.0){
-  while(angle-target<=PI){
-    angle -= 2*PI;
-  }
-  while(angle-target>=-PI){
-    angle += 2*PI;
-  }
-  return angle;
-}
+// float nearest_angle (float angle,float target = 0.0){
+//   while(angle-target>=PI){
+//     angle -= 2*PI;
+//   }
+//   while(angle-target<=-PI){
+//     angle += 2*PI;
+//   }
+//   return angle;
+// }
 
-float get_neck_target(float position){
-  float gear = nearest_angle(position/2.0);
-  int rotate_num = int(position/2.0);
-  if(gear> PI/2.0){
-    rotate_num ++;
-  }else if(gear<0 && gear>=-PI/2.0){
-    rotate_num ++;
-  }
-  return 2.0*PI*float(rotate_num);
-}
+// float get_neck_target(float position){
+//   float gear = nearest_angle(position/2.0);
+//   int rotate_num = int(position/2.0);
+//   if(gear> PI/2.0){
+//     rotate_num ++;
+//   }else if(gear<0 && gear>=-PI/2.0){
+//     rotate_num ++;
+//   }
+//   return 2.0*PI*float(rotate_num);
+// }
 
 
 
@@ -393,7 +420,8 @@ void loop()
   float target_omega = MAX_OMEGA * calculate_ratio(decoded_data[4],right_holizontal_zero_pos);
   
   //腕を動かす。呼ぶと、リセット、ボタン識別まで実施。
-  move_arm(wireless_get_time == 0,x_button);
+   move_arm(wireless_get_time == 0,0);
+  //  move_arm(wireless_get_time == 0,x_button);
 
   
   // M5.Lcd.println("calc movement done");
@@ -417,8 +445,12 @@ void loop()
   if(spin_switch){
     target_omega += spin_speed;
   }
-  speeds[4] = spin_speed * SPIN_NECK_GEARRATIO;
-  
+  if(b_button && !spin_switch){
+    speeds[4] = -2.0 * target_omega;
+    target_omega = 0;
+  }else{
+    speeds[4] = spin_speed * SPIN_NECK_GEARRATIO;
+  }
   M5.Lcd.printf("spin speed = %f\n",spin_speed);
 
   float neck_angle = neckController.nearest_angle(neckController.get_pos());
@@ -426,19 +458,28 @@ void loop()
   float sin_theta = sin(neck_angle);
   float raw_target_x = target_x;
   float raw_target_y = target_y;
-  target_x = raw_target_x * cos_theta - raw_target_y * sin_theta;
-  target_y = raw_target_x * sin_theta + raw_target_y * cos_theta;
+  // target_x = raw_target_x * cos_theta - raw_target_y * sin_theta;
+  // target_y = raw_target_x * sin_theta + raw_target_y * cos_theta;
     //calc each motor speed
   // {0,1,2,3} = {RrR, FrR, FrL, RrL} x-> right
+
+
   speeds[0] =   target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
   speeds[1] = - target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
   speeds[2] = - target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
   speeds[3] =   target_x - target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
 
+  // //reset base for arm debug
+  // for(int i=0;i<5;i++){
+  //   speeds[i] = 0.0;
+  // }
+
   controller.send_speed_command(motor_ids, speeds);
   shoot_ready_set(wireless_get_time == 0);
-  shoot_servo_controll(wireless_get_time == 0);
+  shoot_servo_controll(wireless_get_time == 0,neckController.nearest_angle(neckController.get_pos()*4.0-PI)/4.0);
 
+  
+  servo_angle_write(15,decoded_data[3]);    
 
   int get_data_flag = 0;
   while(!(get_data_flag =get_controller_data())&&(!timer_flag||wireless_get_time==0)){

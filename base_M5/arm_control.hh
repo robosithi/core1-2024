@@ -8,6 +8,7 @@
 #include <cybergear_controller.hh>
 #include <Wire.h>
 #include "servo.hh"
+#include"common.hh"
 
 
 // extern const int arm_shoulder_detect_pin;
