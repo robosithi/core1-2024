@@ -57,6 +57,12 @@ float NeckMotorController::loop(int emergency,int spin_switch){
     static float ret=0.0;
     old_spin_switch = spin_switch;
     static float old_angle = 0.0;
+
+    if(emergency){
+      ret = 0.0;
+      return 0;
+    }
+
     if(abs(motor_status.position)>2*PI){
       //2PI毎に値をリセット・それを積算して絶対角度を取得する
       pos_offset_sum += motor_status.position;
@@ -79,7 +85,7 @@ float NeckMotorController::loop(int emergency,int spin_switch){
         }
         old_angle = nearest_angle(get_pos()*2.0);
     }else{
-      M5.Lcd.printf("angle_distance = %f\n",nearest_angle(get_pos()*2.0));
+      //M5.Lcd.printf("angle_distance = %f\n",nearest_angle(get_pos()*2.0));
       // if(abs(nearest_angle(get_pos()*2.0)<PI/8)){
       if(abs(nearest_angle(get_pos()*2.0)<PI/8)||((nearest_angle(get_pos()*2.0)*old_angle)<0&&(nearest_angle(get_pos()*2.0)*old_angle)>-1)){
         //2をかけるのは前後をOKにするため。

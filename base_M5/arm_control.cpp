@@ -64,7 +64,7 @@ int do_arm_reset(){
   old_position[0] = ref_position[0];
   old_position[1] = ref_position[1];
   
-  M5.Lcd.printf("DoingArmReset ref 0=%f zero 0=%f ref 1=%f zero 1=%f\n",ref_position[0],zero_position[0],ref_position[1],zero_position[1]);
+  //M5.Lcd.printf("DoingArmReset ref 0=%f zero 0=%f ref 1=%f zero 1=%f\n",ref_position[0],zero_position[0],ref_position[1],zero_position[1]);
   return 0;
 }
 
@@ -107,6 +107,15 @@ void move_arm_servo(int mode){
       servo_angle_write(hand_servo,hand_servo_open);
       servo_angle_write(camera_servo,camera_servo_bend);    
       break;
+  }
+
+}
+
+void move_camera_servo(int swi){
+  if(swi){
+    servo_angle_write(camera_servo,camera_servo_bend);
+  }else{
+    servo_angle_write(camera_servo,camera_servo_extend);
   }
 
 }

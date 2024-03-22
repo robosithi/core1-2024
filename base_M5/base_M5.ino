@@ -73,7 +73,7 @@ void setup()
   M5.begin();
 
   //撃破時停止機能のための入力
-  pinMode(destroyed_pin, INPUT_PULLUP);
+  pinMode(destroyed_pin, INPUT);
 
   // init cybergear driver
   init_can();
@@ -245,7 +245,7 @@ void shoot_ready_set(int emergency = 0){
   if(emergency){
     shoot_ready = 0;
   }
-  if(old_pin!=shoot_ready){
+  if(old_pin!=shoot_ready||1){
     // チャンネルと周波数の分解能を設定
     ledcSetup(PWM_CH, PWM_Frequency, nBits_forPWM);
     // PWM出力ピンとチャンネルの設定
@@ -351,15 +351,17 @@ void inital_data_set(){
 
 bool check_destroyed_stop(){
   bool flag = 0;
-  if(flag = (digitalRead(destroyed_pin)==0)){
+  if(flag = (digitalRead(destroyed_pin)==1)){
     if(destroyed_flag==0){
       controller.reset_motors();
       wireless_get_time = 0;
+      destroyed_flag = 1;
     }
   }else{
     if(destroyed_flag==1){
       controller.enable_motors();
-      wireless_get_time = millis();
+      // wireless_get_time = millis();
+      destroyed_flag = 0;
     }
   }
   return flag;
@@ -387,6 +389,17 @@ bool check_destroyed_stop(){
 // }
 
 
+/// @brief Emergency状態かどうか判定する
+/// @return Emergency = true
+bool is_emergency(){
+  if(wireless_get_time == 0){
+    return true;
+  }
+  if(destroyed_flag == 1){
+    return true;
+  }
+  return false;
+}
 
 
 void loop()
@@ -420,8 +433,8 @@ void loop()
   float target_omega = MAX_OMEGA * calculate_ratio(decoded_data[4],right_holizontal_zero_pos);
   
   //腕を動かす。呼ぶと、リセット、ボタン識別まで実施。
-   move_arm(wireless_get_time == 0,0);
-  //  move_arm(wireless_get_time == 0,x_button);
+   move_arm(is_emergency(),0);
+  //  move_arm(is_emergency(),x_button);
 
   
   // M5.Lcd.println("calc movement done");
@@ -441,7 +454,7 @@ void loop()
   M5.Lcd.printf("status_list.size = %d find_id = %d spin_motor_pos = %f\n",status_list.size(),find_id,neckController.get_pos());
 
   //add spin speed
-  float spin_speed =   neckController.loop(wireless_get_time==0,spin_switch);
+  float spin_speed =   neckController.loop(is_emergency(),spin_switch);
   if(spin_switch){
     target_omega += spin_speed;
   }
@@ -456,13 +469,14 @@ void loop()
   float neck_angle = neckController.nearest_angle(neckController.get_pos());
   float cos_theta = cos(neck_angle);
   float sin_theta = sin(neck_angle);
-  float raw_target_x = target_x;
-  float raw_target_y = target_y;
+  // float raw_target_x = target_x;
+  // float raw_target_y = target_y;
   // target_x = raw_target_x * cos_theta - raw_target_y * sin_theta;
   // target_y = raw_target_x * sin_theta + raw_target_y * cos_theta;
     //calc each motor speed
   // {0,1,2,3} = {RrR, FrR, FrL, RrL} x-> right
-
+  target_x = -target_x;
+  target_y = -target_y;
 
   speeds[0] =   target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
   speeds[1] = - target_x + target_y + (MECHANUM_LENGTH_X + MECHANUM_LENGTH_Y)/MECHANUM_TIRE_R * target_omega;
@@ -475,9 +489,9 @@ void loop()
   // }
 
   controller.send_speed_command(motor_ids, speeds);
-  shoot_ready_set(wireless_get_time == 0);
-  shoot_servo_controll(wireless_get_time == 0,neckController.nearest_angle(neckController.get_pos()*4.0-PI)/4.0);
-
+  shoot_ready_set(is_emergency());
+  shoot_servo_controll(is_emergency(),neckController.nearest_angle(neckController.get_pos()*4.0-PI)/4.0);
+  move_camera_servo(x_button);
   
   servo_angle_write(15,decoded_data[3]);    
 
@@ -499,7 +513,7 @@ void loop()
     timer_flag = 0;
   }
   //受信できていないと推定されるとき
-  if(wireless_get_time == 0){
+  if(is_emergency()){
     inital_data_set();
   }
 

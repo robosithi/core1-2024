@@ -24,4 +24,5 @@ int arm_reset_check(int do_flag);
 void move_arm(int emergency ,int arm_button);
 
 void move_arm_servo(int mode);
+void move_camera_servo(int swi);
 #endif
