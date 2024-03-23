@@ -50,7 +50,7 @@ bool shoot_ready = false;
 const uint8_t nBits_forPWM = 8; // PWMに使用するビット数　n=1～16[bit]
                             //PWM周波数の最大値 Maxfreq=80000000.0/2^n[Hz]=312500[Hz]
 const uint8_t PWM_CH = 2;   // PWMチャンネル
-const uint8_t SHOOT_DIR_1 = 25;   // DIRチャンネル
+const uint8_t SHOOT_DIR_1 = 26;   // DIRチャンネル
 const uint8_t SHOOT_PIN = 2;  // PWM出力に使用するGPIO PIN番号
 const int PWM_Values = 102; //デューティ 実質的な射出速度255->full. motorfull=128 70->約27%, 102->40%
                             //MaxDuty=2^n (nBits_forPWM)  DutyRatio = Duty/MaxDuty
@@ -58,7 +58,7 @@ const double PWM_Frequency = 2000.0;
                             // PWM周波数 Maxfreq=80000000.0/2^n[Hz]
 
 //撃破時動作停止系変数宣言
-const int destroyed_pin = 21; //撃破信号入力ピン　、Inverce（0だと撃破されている状態）
+const int destroyed_pin = 35; //撃破信号入力ピン　、Inverce（0だと撃破されている状態）
 int destroyed_flag = 0; //撃破されていたか、フラグ。切り替え時のみの処理に使用
 
 // controller.set_mech_position_to_zero();
@@ -284,44 +284,47 @@ bool shoot_angle_check(float angle){
 /// @brief 射出用サーボをコントロールする
 void shoot_servo_controll(int emergency,float angle){
   static int old_pattarn = -1;
+  M5.Lcd.printf("Servo_controll Em=%d, old_p = %d, ang = %f\n",emergency,old_pattarn,angle);
   if(emergency){
-    if(old_pattarn !=0){
-      old_pattarn = 0;
-      servo_angle_write(0,servo_ready_angle_0);
-      servo_angle_write(1,servo_ready_angle_1);
-    }
+    // if(old_pattarn !=0){
+    //   old_pattarn = 0;
+    //   servo_angle_write(0,servo_ready_angle_0);
+    //   servo_angle_write(1,servo_ready_angle_1);
+    // }
     return;
   }
 
   static int servo_cnt = 0; 
-  if(a_button&& shoot_ready){
+  if(a_button && shoot_ready){
     if(servo_cnt < servo_wait_cnt_max/2){
-      if(old_pattarn!=1&&shoot_angle_check(-angle)){
-        //Shoot left
-        old_pattarn = 1;
-        //charge 0, shoot 1
-        servo_angle_write(0,servo_ready_angle_0);
-        servo_angle_write(1,servo_shoot_angle_1);
-      }else if(old_pattarn!=1){
-        old_pattarn = 0;
-        servo_angle_write(0,servo_ready_angle_0);
-        servo_angle_write(1,servo_ready_angle_1);
-
-      }
+      servo_angle_write(0,servo_ready_angle_0);
+      servo_angle_write(1,servo_shoot_angle_1);
+      // if(old_pattarn!=1&&shoot_angle_check(-angle)){
+      //   //Shoot left
+      //   old_pattarn = 1;
+      //   //charge 0, shoot 1
+      //   servo_angle_write(0,servo_ready_angle_0);
+      //   servo_angle_write(1,servo_shoot_angle_1);
+      // }else if(old_pattarn!=1){
+      //   old_pattarn = 0;
+      //   servo_angle_write(0,servo_ready_angle_0);
+      //   servo_angle_write(1,servo_ready_angle_1);
+      // }
       servo_cnt ++;
     }else if(servo_cnt < servo_wait_cnt_max){
       //Shoot right
-      if(old_pattarn!=2&&shoot_angle_check(angle)){
-        old_pattarn = 2;
-        //shoot 0, charge 1
-        servo_angle_write(0,servo_shoot_angle_0);
-        servo_angle_write(1,servo_ready_angle_1);
-      }else if(old_pattarn!=2){
-        old_pattarn = 0;
-        servo_angle_write(0,servo_ready_angle_0);
-        servo_angle_write(1,servo_ready_angle_1);
-
-      }
+      servo_angle_write(0,servo_shoot_angle_0);
+      servo_angle_write(1,servo_ready_angle_1);
+      // if(old_pattarn!=2&&shoot_angle_check(angle)){
+      //   old_pattarn = 2;
+      //   //shoot 0, charge 1
+      //   servo_angle_write(0,servo_shoot_angle_0);
+      //   servo_angle_write(1,servo_ready_angle_1);
+      // }else if(old_pattarn!=2){
+      //   old_pattarn = 0;
+      //   servo_angle_write(0,servo_ready_angle_0);
+      //   servo_angle_write(1,servo_ready_angle_1);
+      // }
       servo_cnt++;
       if(servo_cnt==servo_wait_cnt_max){
         servo_cnt = 0;
@@ -467,8 +470,8 @@ void loop()
   M5.Lcd.printf("spin speed = %f\n",spin_speed);
 
   float neck_angle = neckController.nearest_angle(neckController.get_pos());
-  float cos_theta = cos(neck_angle);
-  float sin_theta = sin(neck_angle);
+  // float cos_theta = cos(neck_angle);
+  // float sin_theta = sin(neck_angle);
   // float raw_target_x = target_x;
   // float raw_target_y = target_y;
   // target_x = raw_target_x * cos_theta - raw_target_y * sin_theta;
@@ -489,8 +492,8 @@ void loop()
   // }
 
   controller.send_speed_command(motor_ids, speeds);
-  shoot_ready_set(is_emergency());
   shoot_servo_controll(is_emergency(),neckController.nearest_angle(neckController.get_pos()*4.0-PI)/4.0);
+  shoot_ready_set(is_emergency());
   move_camera_servo(x_button);
   
   servo_angle_write(15,decoded_data[3]);    
